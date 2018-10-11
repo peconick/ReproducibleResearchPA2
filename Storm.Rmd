@@ -1,0 +1,259 @@
+---
+title: "Severe Wheather Events Impact on Health and Economy on US"
+author: "Gustavo T Peconick"
+date: "03/10/2018"
+output: 
+  html_document:
+    keep_md: true
+---
+
+# Introduction
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+The propuse of this analysis is to address the following questions:
+
+1. Across the United States, which types of events are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences?
+
+
+## Code
+####################################################### LINK
+LINK
+LINK
+LINK
+The code for this analysis is avaiable at: http://www.cadeolink.com.br
+
+## Data
+The data for this assignment come in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. You can download the file from the course web site:
+
+* [Storm Data (47Mb)] (https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2)
+
+There is also some documentation of the database available. Here you will find how some of the variables are constructed/defined.
+
+* National Weather Service [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+* National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+The events in the database start in the year 1950 and end in November 2011. In the earlier years of the database there are generally fewer events recorded, most likely due to a lack of good records. More recent years should be considered more complete.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, results = TRUE)
+library(dplyr)
+library(lubridate)
+library(chron)
+library(ggplot2)
+library(knitr)
+```
+
+
+### Loading and preprocessing the data
+
+```{r Reading dataset, cache=TRUE}
+dataFileName<-"StormData.csv.bz2"
+fileUrl<-"https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+if (!(file.exists(dataFileName))){
+        download.file(fileUrl,zipFileName)
+    }
+StormData<-read.csv(dataFileName)
+StormData$EVTYPE<-StormData$EVTYPE %>% as.character() %>% toupper() %>% as.factor()
+StormData$PROPDMGEXP<-StormData$PROPDMGEXP %>% as.character() %>% toupper() %>% as.factor()
+StormData$CROPDMGEXP<-StormData$CROPDMGEXP %>% as.character() %>% toupper() %>% as.factor()
+```
+
+The storm data for this analysis was dowloaded on Ocotber 3, 2018.
+Here is how tha data looks before any processing, except making **EVTYPE**, **PROPDMGEXP** and **CROPDMGEXP** upper case for standarization.
+
+### Missing Values
+Missing values were detected at the columns:
+```{r Missing Values, cache=TRUE, echo=FALSE}
+na_count<-sapply(StormData, function(x) sum(length(which(is.na(x)))))
+na_count[na_count>0]
+```
+Fortunanely the missing values does not influence the analisys and all the data is considered ready for this propouse.
+
+### Data Structure
+
+```{r Data Structure, cache=TRUE, echo=FALSE}
+str(StormData)
+```
+
+# Data Processing
+
+### Health
+
+To define have a more complete analysis, we must first combine the total inuries and fatailities in a new variable called *Health Issue*.
+
+The final data for health issue analisys over the wheather events looks like this:
+```{r Unit Conversion, cache=TRUE, echo=FALSE}
+StormData<-cbind(StormData,healthIssue=StormData$INJURIES+StormData$FATALITIES)
+kable(head(StormData[order(StormData$healthIssue,decreasing=TRUE),
+                     c("EVTYPE","INJURIES","FATALITIES","healthIssue")],6))
+```
+
+
+### Economic
+
+As stated in the data desctiption **PROPDMGEXP** and **CROPDMGEXP** varaibles represent the unit where K stands for thousand dolars, M for milion dolars and B for bilion dolars. Some other values were detected on unit variables, but only at observations are equal to zero.
+
+```{r Monetary Units Table, eval=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, out.width = '40%'}
+## Count for each value of unit variables. This shows that errors occurs only where damave values are zero
+## This is usefull for viewing but not necessary for running the analisys
+table<-merge(table(StormData$PROPDMGEXP),
+             table(StormData$CROPDMGEXP),
+             by="Var1",all=TRUE)
+
+names(table)<-c("Value","PROPDMGEXP","CROPDMGEXP")
+table<-table[order(table$PROPDMGEXP,decreasing =TRUE),]
+kable(table)
+```
+
+We will use the multipliers below for generating values **us_PROPDMG** and **us_CROPDMG** thar are unit idependet.
+
+```{r unit multiplier association, echo=FALSE}
+# define unit Values
+multiplyers<-data.frame(UNIT=c("K","M","G"), MULTIPLYER=c(10^3,10^6,10^9))
+kable(multiplyers)
+```
+
+By combinig the *us_PROPDMG* and *us_CROPDMG* values we calculate a new variable to represent the total damage caused by each observation and associate it to new varialbe called **us_TOTALDMG**. We will also replace NA values for zeros.
+
+The final data for economic analisys over the wheather events looks like this:
+```{r converting values, echo=FALSE}
+# Merge Multipliers
+StormData<-merge(StormData, y=multiplyers, by.x="PROPDMGEXP", by.y="UNIT",all.x=TRUE,sort=FALSE)
+StormData<-merge(StormData, y=multiplyers, by.x="CROPDMGEXP", by.y="UNIT",all.x=TRUE,sort=FALSE)
+names(StormData)[c(39,40)]<-c("us_PROPDMG","us_CROPDMG")
+
+# Calculate Value in US dolars
+StormData$us_PROPDMG <- StormData$us_PROPDMG*StormData$PROPDMG
+StormData$us_CROPDMG <- StormData$us_CROPDMG*StormData$CROPDMG
+
+StormData$us_PROPDMG[is.na(StormData$us_PROPDMG)] <- 0 
+StormData$us_CROPDMG[is.na(StormData$us_CROPDMG)] <- 0 
+#Calculate total Damage
+StormData<-mutate(StormData,us_TOTALDMG=us_PROPDMG+us_CROPDMG)
+
+#Print Result
+kable(head(StormData[order(StormData$us_TOTALDMG,decreasing=TRUE),
+                     c("EVTYPE","PROPDMG","PROPDMGEXP","us_PROPDMG","CROPDMG","CROPDMGEXP","us_CROPDMG","us_TOTALDMG")],6))
+
+```
+
+
+
+
+
+# Analysis
+
+### Results for Health Issues
+Lets take a look on the top 5 Types for **Injuries**, **Fatalities** and **Health Issue**
+```{r Data Sumarry Health, cache=TRUE, echo=FALSE, echo=FALSE}
+StormSummaryHealth<-StormData %>% group_by(StormData$EVTYPE) %>% summarize(
+    Ocurrences = length(EVTYPE),
+    Injuries = sum(INJURIES),
+    Fatalities = sum(FATALITIES),
+    HealthIssue = sum(healthIssue),
+    AverageInjuries = Injuries/Ocurrences,
+    AverageFatalities = Fatalities/Ocurrences,
+    AverageHealthIssue = HealthIssue/Ocurrences)
+
+    StormSummaryHealth<-StormSummaryHealth[complete.cases(StormSummaryHealth),]
+    names(StormSummaryHealth)[1]<-"EVTYPE"
+
+```
+
+##### Injuries
+```{r Top Injuries, cache=TRUE, echo=FALSE}
+topInjuries<-order(StormSummaryHealth$Injuries,decreasing = TRUE)
+kable(StormSummaryHealth[topInjuries[1:5],c(1,2,3)])
+```
+
+##### Fatalities
+```{r Top Fatalities, cache=TRUE, echo=FALSE}
+topFatality<-order(StormSummaryHealth$Fatalities,decreasing = TRUE)
+kable(StormSummaryHealth[topFatality[1:5],c(1,2,4)])
+```
+
+##### Health Issue
+```{r Top Health Issues, cache=TRUE, echo=FALSE}
+topHealthIssue<-order(StormSummaryHealth$HealthIssue,decreasing = TRUE)
+kable(StormSummaryHealth[topHealthIssue[1:5],c(1,2,5)])
+```
+
+Now that we cave a sense of the most relevant event types for heath issues we can make deeper analisys types of event only.
+
+
+
+### Health Insight
+
+```{r filter data healh, cache=TRUE, echo=FALSE}
+relevantHealthTypes<-StormSummaryHealth[unique(c(topHealthIssue[1:5],topFatality[1:5],topInjuries[1:5])),1]$EVTYPE
+StormSummaryHealth<-StormSummaryHealth[StormSummaryHealth$EVTYPE %in% relevantHealthTypes,]
+StormDataHealth<-StormData[StormData$EVTYPE %in% relevantHealthTypes,]
+```
+
+```{r Everage Plot, echo=FALSE }
+ggplot(data=StormDataHealth,aes(healthIssue,FATALITIES,color=EVTYPE))+geom_point()+geom_smooth(method='lm')
+```
+
+As seen above, *tornadoes* is the type of climate event that makes more victims (fatal and not fatal) in the US, but *heat* related events are the one that promote more victims per event and, with a higher fatality/victims ratio, it is the most dangerous type of event, even tought less frequent the the others.
+We can also notice that a single heat event killed amost 600 people, significantly increasing the average kills of that event type. By removing this single event, **HEAT** kill ration significantly lowers and **EXCESSIVE HEAT** stands out as the most lethal event type.
+
+*This analysis shows that the data is not acuratly classified and more manipulation is necessary, but out of the scope of this project, since it would require tremedous effort to complete it*
+
+### Results for Economic Consequences
+```{r Data Sumarry Economic, echo=FALSE, cache=TRUE}
+StormSummaryEconomic<-StormData %>% group_by(StormData$EVTYPE) %>% summarize(
+    Ocurrences = length(EVTYPE),
+    us_PROPDMG = (sum(us_PROPDMG)/1000000000),
+    us_CROPDMG = (sum(us_CROPDMG)/1000000000),
+    us_TOTALDMG = (sum(us_TOTALDMG)/1000000000),
+    m_PROPDMG = mean(us_PROPDMG),
+    m_CROPDMG = mean(us_CROPDMG),
+    m_TOTALDMG = mean(us_TOTALDMG)
+    )
+
+StormSummaryEconomic<-StormSummaryEconomic[complete.cases(StormSummaryEconomic),]
+StormSummaryEconomic<-StormSummaryEconomic[order(StormSummaryEconomic$us_TOTALDMG,decreasing = TRUE),]
+
+names(StormSummaryEconomic)[1]<-"EVTYPE"
+```
+
+##### Top Property Damage Event Type
+```{r Top Proprety, cache=TRUE, echo=FALSE}
+topPropDamage<-order(StormSummaryEconomic$us_PROPDMG,decreasing = TRUE)
+kable(StormSummaryEconomic[topPropDamage[1:6],c(1,2,3)])
+```
+
+##### Top Crop Damage Event Type
+```{r Top Crop, cache=TRUE, echo=FALSE}
+topCropDatamage<-order(StormSummaryEconomic$us_CROPDMG,decreasing = TRUE)
+kable(StormSummaryEconomic[topCropDatamage[1:6],c(1,2,4)])
+```
+
+##### Top Total Damage Event Type
+```{r Top Total Damage, cache=TRUE, echo=FALSE}
+topTotalDatamage<-order(StormSummaryEconomic$us_TOTALDMG,decreasing = TRUE)
+kable(StormSummaryEconomic[topTotalDatamage[1:6],c(1,2,5)])
+```
+
+
+
+
+
+
+
+Now that we cave a sense of the most relevant event types for economic losses we can make deeper analisys types of event only.
+### MORE ECONOMIC
+We calculate a new variable **PropShare** for each observation to represet the percenteage of economic loss that is related to proprety damage.
+```{r PropRatio Plot,echo=FALSE}
+relevantEconomicTypes<-StormSummaryEconomic[unique(c(topPropDamage[1:5],topCropDatamage[1:5],topTotalDatamage[1:5])),1]$EVTYPE
+StormDataEconomic<-StormData[StormData$EVTYPE %in% relevantEconomicTypes,]
+StormDataEconomic<-mutate(StormDataEconomic,PropShare=StormDataEconomic$us_PROPDMG/StormDataEconomic$us_TOTALDMG)
+qplot(y=StormDataEconomic$PropShare,x=StormDataEconomic$EVTYPE,geom="boxplot",ylab="% of damage related to property damage",xlab="EVTYPE")
+
+```
+Among the top events **Drought** stands out by being the only one that has its main component of economic loss associated with crop damage.
+
